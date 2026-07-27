@@ -1,7 +1,7 @@
 <!-- markdownlint-disable -->
 # Parsera n8n Service
 
-Production-ready self-hosted web scraping and data extraction service for [n8n](https://n8n.io/) integration. Orchestrates browser automation via [Browserless](https://www.browserless.io/) and LLM-[...]
+Production-ready self-hosted web scraping and data extraction service for [n8n](https://n8n.io/) integration. Orchestrates browser automation via [Browserless](https://www.browserless.io/) and multiple options of LLMs.
 
 ## Features
 
