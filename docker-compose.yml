@@ -19,43 +19,39 @@ services:
     image: enantiomerie/parsera:latest
     networks:
       - n8n_net
-    environment:
-      # Service
-      LOG_LEVEL: INFO
-      
-      # Browserless
-      BROWSERLESS_URL: http://browserless:3000
-      BROWSERLESS_TIMEOUT: 30
-      BROWSERLESS_RETRIES: 1
-      
-      # LLM Provider (gemini, openai, or ollama)
-      LLM_PROVIDER: ${LLM_PROVIDER:-gemini}
-      
-      # Gemini (if using gemini provider)
-      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
-      
-      # OpenAI (if using openai provider)
-      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
-      OPENAI_MODEL: gpt-3.5-turbo
-      
-      # Ollama (if using ollama provider)
-      OLLAMA_BASE_URL: http://ollama:11434
-      OLLAMA_MODEL: llama2
-      
-      # Request configuration
-      REQUEST_TIMEOUT: 60
-      MAX_URL_LENGTH: 2000
-      MAX_EXTRACTION_RULES_LENGTH: 5000
-      
-      # Validation
-      VALIDATE_JSON_OUTPUT: "true"
-    
+
+    # Read runtime configuration from .env (copy from .env.example)
+    env_file:
+      - .env
+
+    # Hints for configuring LLM providers (set these in .env):
+    #
+    # Gemini
+    #   - LLM_PROVIDER=gemini
+    #   - GEMINI_API_KEY=your-gemini-api-key
+    #
+    # OpenAI
+    #   - LLM_PROVIDER=openai
+    #   - OPENAI_API_KEY=your-openai-key
+    #   - (optional) OPENAI_MODEL=gpt-4 or gpt-3.5-turbo
+    #
+    # Ollama (local/self-hosted)
+    #   - LLM_PROVIDER=ollama
+    #   - OLLAMA_BASE_URL=http://ollama:11434 (or reachable host/port)
+    #   - OLLAMA_MODEL=llama2
+    #   - Ensure an Ollama service is available on the same Docker network or set OLLAMA_BASE_URL to a reachable address
+    #
+    # Notes:
+    #   - Copy .env.example to .env and edit only the secrets and values you need.
+    #   - Keep API keys out of source control; do NOT commit .env.
+    #   - Only provide the credentials required by the LLM provider you select.
+
     depends_on:
       browserless:
         condition: service_healthy
-    
+
     restart: unless-stopped
-    
+
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 30s
