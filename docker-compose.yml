@@ -4,7 +4,6 @@ services:
     networks:
       - n8n_net
     environment:
-      TOKEN: ${BROWSERLESS_TOKEN:-}
       DEBUG: "false"
       PUPPETEER_SKIP_CHROMIUM_DOWNLOAD: "true"
     restart: unless-stopped
@@ -24,6 +23,37 @@ services:
         condition: service_healthy
 
     restart: unless-stopped
+
+    environment:
+      # Service
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+
+      # Browserless
+      BROWSERLESS_URL: http://browserless:3000
+      BROWSERLESS_TIMEOUT: ${BROWSERLESS_TIMEOUT:-30}
+      BROWSERLESS_RETRIES: ${BROWSERLESS_RETRIES:-1}
+
+      # LLM Provider: gemini, openai, or ollama
+      LLM_PROVIDER: ${LLM_PROVIDER:-gemini}
+
+      # Google Gemini
+      GEMINI_API_KEY: ${GEMINI_API_KEY}
+
+      # OpenAI
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      OPENAI_MODEL: ${OPENAI_MODEL:-gpt-3.5-turbo}
+
+      # Ollama
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://ollama:11434}
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-llama2}
+
+      # Request configuration
+      REQUEST_TIMEOUT: ${REQUEST_TIMEOUT:-60}
+      MAX_URL_LENGTH: ${MAX_URL_LENGTH:-2000}
+      MAX_EXTRACTION_RULES_LENGTH: ${MAX_EXTRACTION_RULES_LENGTH:-5000}
+
+      # Validation
+      VALIDATE_JSON_OUTPUT: ${VALIDATE_JSON_OUTPUT:-true}
 
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
