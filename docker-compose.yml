@@ -1,9 +1,6 @@
-version: "3.8"
-
 services:
   browserless:
     image: browserless/chrome:1.61.0
-    container_name: browserless
     networks:
       - n8n_net
     environment:
@@ -20,10 +17,6 @@ services:
 
   parsera:
     image: enantiomerie/parsera:latest
-    container_name: parsera
-    build:
-      context: .
-      dockerfile: Dockerfile
     networks:
       - n8n_net
     environment:
