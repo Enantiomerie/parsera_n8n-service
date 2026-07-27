@@ -1,0 +1,75 @@
+version: "3.8"
+
+services:
+  browserless:
+    image: browserless/chrome:1.61.0
+    container_name: browserless
+    networks:
+      - n8n_net
+    environment:
+      TOKEN: ${BROWSERLESS_TOKEN:-}
+      DEBUG: "false"
+      PUPPETEER_SKIP_CHROMIUM_DOWNLOAD: "true"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  parsera:
+    image: enantiomerie/parsera:latest
+    container_name: parsera
+    build:
+      context: .
+      dockerfile: Dockerfile
+    networks:
+      - n8n_net
+    environment:
+      # Service
+      LOG_LEVEL: INFO
+      
+      # Browserless
+      BROWSERLESS_URL: http://browserless:3000
+      BROWSERLESS_TIMEOUT: 30
+      BROWSERLESS_RETRIES: 1
+      
+      # LLM Provider (gemini, openai, or ollama)
+      LLM_PROVIDER: ${LLM_PROVIDER:-gemini}
+      
+      # Gemini (if using gemini provider)
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      
+      # OpenAI (if using openai provider)
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_MODEL: gpt-3.5-turbo
+      
+      # Ollama (if using ollama provider)
+      OLLAMA_BASE_URL: http://ollama:11434
+      OLLAMA_MODEL: llama2
+      
+      # Request configuration
+      REQUEST_TIMEOUT: 60
+      MAX_URL_LENGTH: 2000
+      MAX_EXTRACTION_RULES_LENGTH: 5000
+      
+      # Validation
+      VALIDATE_JSON_OUTPUT: "true"
+    
+    depends_on:
+      browserless:
+        condition: service_healthy
+    
+    restart: unless-stopped
+    
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+networks:
+  n8n_net:
+    external: true
