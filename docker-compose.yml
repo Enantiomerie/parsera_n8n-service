@@ -1,6 +1,6 @@
 services:
   browserless:
-    image: browserless/chrome:1.61.0
+    image: browserless/chrome:latest
     networks:
       - n8n_net
     environment:
