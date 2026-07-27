@@ -1,7 +1,7 @@
 <!-- markdownlint-disable -->
 # Parsera n8n Service
 
-Production-ready self-hosted web scraping and data extraction service for [n8n](https://n8n.io/) integration. Orchestrates browser automation via [Browserless](https://www.browserless.io/) and LLM-powered data extraction with support for multiple LLM providers (Google Gemini, OpenAI, Ollama).
+Production-ready self-hosted web scraping and data extraction service for [n8n](https://n8n.io/) integration. Orchestrates browser automation via [Browserless](https://www.browserless.io/) and LLM-[...]
 
 ## Features
 
@@ -284,51 +284,99 @@ Then Parsera can be deployed to the same network.
 
 ### Prerequisites
 
-- Synology NAS with Docker support
+- Synology NAS with Docker support (Container Manager)
 - n8n already running in Docker
+- Repository files available (cloned or uploaded to your NAS)
 
 ### Steps
 
-1. **SSH into Synology**
+1. **Access Container Manager GUI**
 
-```bash
-ssh admin@synology-ip
-```
+   - Open your Synology DSM (DiskStation Manager)
+   - Go to **Main Menu** > **Container Manager** (or search for it)
+   - This opens the official Synology Container Manager interface
 
-2. **Clone Repository**
+2. **Create External Network (if needed)**
 
-```bash
-cd /volume1/docker  # or your preferred Docker directory
-git clone https://github.com/Enantiomerie/parsera_n8n-service.git
-cd parsera_n8n-service
-```
+   - In Container Manager, go to **Network** tab
+   - Click **Create** to create a new network
+   - Name it `n8n_net` and set driver to **Bridge**
+   - Click **Create** to confirm
 
-3. **Configure Environment**
+3. **Configure Environment File**
 
-```bash
-nano .env
-```
+   - On your NAS (using File Station), navigate to your project directory (e.g., `/volume1/docker/parsera_n8n-service`)
+   - Copy `.env.example` to `.env`
+   - Edit `.env` with your LLM credentials and provider settings
+   - Save the file
 
-Set your LLM credentials and provider.
+4. **Create Browserless Container**
 
-4. **Deploy**
+   - In Container Manager, go to **Image** tab
+   - Click **Add** > **Add from URL**
+   - Enter: `browserless/chrome`
+   - Click **Create**
+   - Once image is downloaded, go to **Container** tab
+   - Click **Create** and select the Browserless image
+   - Configure:
+     - **Container Name**: `browserless`
+     - **Network**: Select `n8n_net`
+     - **Port Settings**: Map port `3000` (container) to `3000` (host)
+   - Click **Advanced Settings** and set **Resource Limits** if needed
+   - Click **Create** to start the container
 
-```bash
-docker-compose up -d
-```
+5. **Create Parsera Container**
 
-5. **Verify**
+   - In Container Manager, go to **Image** tab
+   - Click **Add** > **Add from URL** or **Create**
+   - If building from source:
+     - Click **Create** to build from Dockerfile
+     - Upload/select the `Dockerfile` from your project directory
+     - Name the image `parsera`
+     - Wait for build to complete
+   - Go to **Container** tab
+   - Click **Create** and select the Parsera image
+   - Configure:
+     - **Container Name**: `parsera`
+     - **Network**: Select `n8n_net`
+     - **Port Settings**: Map port `8000` (container) to `8000` (host)
+     - **Environment Variables**: Click **Add** and input each variable from your `.env` file:
+       - `LLM_PROVIDER`
+       - `GEMINI_API_KEY` (or appropriate provider key)
+       - `BROWSERLESS_URL=http://browserless:3000`
+       - Any other relevant variables
+   - Click **Advanced Settings**:
+     - Enable **Auto-restart** if desired
+     - Set resource limits if needed
+   - Click **Create** to start the container
 
-```bash
-docker ps
-curl http://localhost:8000/health
-```
+6. **Verify Deployment**
 
-### Synology Storage Notes
+   - In Container Manager, go to **Container** tab
+   - Verify both `browserless` and `parsera` containers show **Running** status
+   - Click on `parsera` container to view logs
+   - Check for any error messages
 
-- Container logs: Check Docker UI or use `docker-compose logs -f`
-- No persistent volumes needed (stateless service)
-- Place project in `/volume1/docker` or your preferred location
+7. **Test Health Endpoint**
+
+   - Open a browser or terminal on a machine on the same network
+   - Navigate to: `http://<synology-ip>:8000/health`
+   - Should return a JSON response with `"status": "healthy"`
+
+8. **Connect to n8n**
+
+   - In your n8n workflows, reference the Parsera service at: `http://parsera:8000/scrape`
+   - If n8n is on the same `n8n_net` network, it can communicate directly
+   - See **n8n Integration** section for workflow examples
+
+### Synology Container Manager Tips
+
+- **Monitoring Logs**: Click on a running container, then select **Details** > **Logs** to view real-time output
+- **Stopping/Starting**: Select a container and click **Stop** or **Start** in the toolbar
+- **Removing Containers**: Right-click a container and select **Delete** (images persist)
+- **Environment Variables**: Can be modified by recreating the container with updated values
+- **Data Persistence**: This is a stateless service, so no volumes are needed
+- **Network Connectivity**: Containers on the same bridge network can communicate using container names as hostnames
 
 ## Troubleshooting
 
@@ -338,15 +386,17 @@ curl http://localhost:8000/health
 
 **Solution**:
 ```bash
-# Check Browserless is running
-docker-compose ps browserless
+# Check Browserless is running (in Container Manager, verify status)
+# In container details, check logs for startup errors
 
-# Check network
-docker network ls
-docker network inspect n8n_net
+# Verify network configuration
+# - Both containers should be on the same network (n8n_net)
+# - Check Container Manager > Network tab
 
-# Check logs
-docker-compose logs browserless
+# Common causes on Synology
+# - Network not properly created or selected
+# - Browserless container name mismatch
+# - Port mapping misconfiguration
 ```
 
 ### "LLM API key not set"
@@ -354,17 +404,17 @@ docker-compose logs browserless
 **Problem**: Configuration error on startup
 
 **Solution**:
-```bash
-# Verify .env file
-cat .env
+```
+# Verify .env file was properly saved (File Station)
+# In Container Manager, verify environment variables are set:
+#   - Select Parsera container
+#   - Click Details > Environment
+#   - Confirm all LLM variables are present
 
-# Check environment variables in container
-docker exec parsera env | grep LLM
-
-# Restart with correct credentials
-docker-compose down
-# Update .env
-docker-compose up -d
+# Recreate container with correct variables:
+#   - Stop the container
+#   - Delete the container (keep the image)
+#   - Create new container with updated environment variables
 ```
 
 ### "LLM returned invalid JSON"
@@ -374,23 +424,28 @@ docker-compose up -d
 **Solution**:
 - Refine extraction rules to be more specific
 - Use simpler extraction targets
-- Check LLM logs: `docker-compose logs parsera`
+- Check Parsera logs in Container Manager > Container > Details > Logs
 - Test with different LLM provider
 
 ### Logs
 
-View service logs:
+View service logs in Synology Container Manager:
+
+```
+- Select the container (parsera or browserless)
+- Click Details tab
+- Select Logs to view real-time output
+- Scroll through logs to find errors
+```
+
+Or via command line (if you have SSH access):
 
 ```bash
-# All services
+# All services (via docker-compose)
 docker-compose logs -f
 
-# Specific service
-docker-compose logs -f parsera
-docker-compose logs -f browserless
-
-# Last 100 lines
-docker-compose logs --tail=100 parsera
+# Specific container via Container Manager CLI
+docker logs <container_id>
 ```
 
 ## Building Locally
