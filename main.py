@@ -113,19 +113,33 @@ def _strip_code_fence(text: str) -> str:
 
 
 class GeminiProvider(LLMProvider):
-    """Google Gemini API provider."""
+    """Google Gemini API provider.
+
+    This class is implemented against the new googleapis/python-genai SDK (`google.genai`) and
+    expects that package to be installed (PyPI package `google-genai`). It uses the
+    Client.models.generate_content API to request generations and accommodates
+    the most common response shapes.
+    """
 
     def __init__(self):
         try:
             import google.genai as genai
-            genai.configure(api_key=settings.GEMINI_API_KEY)
-            self.client = genai.GenerativeModel("gemini-pro")
+
+            # Use explicit API key when provided, otherwise rely on ADC/env
+            if settings.GEMINI_API_KEY:
+                self.client = genai.Client(api_key=settings.GEMINI_API_KEY)
+            else:
+                self.client = genai.Client()
+
+            # prefer model name from settings if provided, default to gemini-pro
+            self.model_name = getattr(settings, "GEMINI_MODEL", "gemini-pro")
+
         except Exception as e:
-            logger.error(f"Failed to initialize Gemini: {e}")
+            logger.error(f"Failed to initialize Gemini (google.genai client): {e}")
             raise
 
     async def extract(self, content: str, rules: str) -> dict[str, Any]:
-        """Extract data using Gemini."""
+        """Extract data using Gemini via google.genai.Client.models.generate_content."""
         prompt = f"""You are a data extraction expert. Extract information from the following content based on the rules provided.
 
 CONTENT:
@@ -137,11 +151,52 @@ EXTRACTION RULES:
 Return ONLY valid JSON with the extracted data. Do not include markdown formatting or any other text."""
 
         try:
-            # Gemini client is blocking — run in a thread to avoid blocking the event loop
-            response = await asyncio.to_thread(self.client.generate_content, prompt)
-            result_text = _strip_code_fence(response.text)
+            # Run blocking SDK call in a thread
+            response = await asyncio.to_thread(
+                lambda: self.client.models.generate_content(model=self.model_name, contents=[prompt])
+            )
+
+            # The response shape differs across SDK versions; attempt to extract text robustly
+            result_text = None
+
+            # Common: response.candidates -> list with message/content
+            if hasattr(response, "candidates"):
+                try:
+                    c = response.candidates
+                    if isinstance(c, (list, tuple)) and c:
+                        first = c[0]
+                        # candidate may be a Message object with 'content' attribute
+                        result_text = getattr(first, "content", None) or getattr(first, "text", None) or str(first)
+                except Exception:
+                    result_text = None
+
+            # Some versions expose 'output' or 'content' directly
+            if not result_text and hasattr(response, "output"):
+                out = getattr(response, "output")
+                try:
+                    if isinstance(out, (list, tuple)) and out:
+                        first = out[0]
+                        if isinstance(first, dict):
+                            result_text = first.get("content") or first.get("text")
+                        else:
+                            result_text = str(first)
+                    elif isinstance(out, str):
+                        result_text = out
+                except Exception:
+                    result_text = None
+
+            # Some responses may have a top-level 'text' attr
+            if not result_text:
+                result_text = getattr(response, "text", None)
+
+            # Fallback to stringifying the whole response
+            if not result_text:
+                result_text = str(response)
+
+            result_text = _strip_code_fence(result_text)
             data = json.loads(result_text)
             return data
+
         except json.JSONDecodeError as e:
             logger.error(f"Gemini returned invalid JSON: {e}")
             raise ValueError(f"LLM returned invalid JSON: {e}")
