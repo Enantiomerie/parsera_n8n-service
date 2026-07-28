@@ -16,7 +16,7 @@ services:
       start_period: 10s
 
   parsera:
-    image: enantiomerie/parsera:latest
+    image: enantiomerie/parsera_n8n-service:latest
     container_name: parsera
     networks:
       - n8n_net
