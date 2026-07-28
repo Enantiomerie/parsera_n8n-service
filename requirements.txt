@@ -6,3 +6,5 @@ google-generativeai~=0.3
 openai~=1.0
 httpx~=0.24
 python-dotenv~=1.0
+parsera~=0.2.6
+playwright~=1.38
