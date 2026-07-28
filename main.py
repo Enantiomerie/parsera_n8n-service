@@ -347,9 +347,26 @@ async def scrape(request: ScrapeRequest) -> ScrapeResponse:
         
         logger.debug(f"Content fetched, length: {len(content)} chars")
         
+        # Integrate parsera: try to parse HTML into structured output and send that to LLM.
+        content_for_llm = content
+        try:
+            from parsera import Parsera
+            logger.debug("Parsera available, attempting to parse HTML content")
+            parser = Parsera(html=content)
+            # parser.parse() is blocking; run it in a thread to avoid blocking FastAPI event loop
+            parsed = await asyncio.to_thread(parser.parse)
+            if isinstance(parsed, (dict, list)):
+                content_for_llm = json.dumps(parsed)
+            else:
+                content_for_llm = str(parsed)
+            logger.debug(f"Parsera produced content_for_llm length={len(content_for_llm)}")
+        except Exception as e:
+            logger.info(f"Parsera not available or parsing failed, falling back to raw HTML: {e}")
+            content_for_llm = content
+        
         # Extract data using LLM
         logger.debug(f"Extracting data using {settings.LLM_PROVIDER}")
-        data = await llm_provider.extract(content, request.extraction_rules)
+        data = await llm_provider.extract(content_for_llm, request.extraction_rules)
         
         logger.info(f"Scrape successful: {request.url}")
         
