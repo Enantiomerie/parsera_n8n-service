@@ -1,8 +1,21 @@
 FROM python:3.11-slim-bookworm AS builder
 
-# Install build dependencies
+# Install build + Playwright system dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
+    libnss3 \
+    libatk1.0-0 \
+    libatk-bridge2.0-0 \
+    libcups2 \
+    libx11-xcb1 \
+    libxcomposite1 \
+    libxdamage1 \
+    libxrandr2 \
+    libgbm1 \
+    libasound2 \
+    libxss1 \
+    ca-certificates \
+    curl \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /build
@@ -12,6 +25,9 @@ COPY requirements.txt .
 RUN python -m venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
 RUN pip install --no-cache-dir -r requirements.txt
+
+# Install Playwright browser binaries (with deps)
+RUN python -m playwright install --with-deps
 
 
 FROM python:3.11-slim-bookworm
