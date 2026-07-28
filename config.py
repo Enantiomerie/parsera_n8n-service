@@ -39,7 +39,7 @@ class Settings(BaseSettings):
     MAX_EXTRACTION_RULES_LENGTH: int = 5000
     
     # Validation
-    VALIDATE_JSON_OUTPUT: bool = True
+    VALIDATE_JSON_OUTPUT: bool = true
 
     @field_validator("VALIDATE_JSON_OUTPUT", mode="before")
     @classmethod
