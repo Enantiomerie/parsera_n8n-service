@@ -112,65 +112,20 @@ def _strip_code_fence(text: str) -> str:
     return t.strip()
 
 
-def _extract_response_text(response) -> str:
-    """Extract the generated text from a google-genai response object.
-
-    This targets the modern google-genai Client response shape (response.text,
-    or response.candidates[0].content[0].text). If the expected attributes are
-    missing, fall back to the raw _result or str(response).
-    """
-    # Preferred shortcut
-    text = getattr(response, "text", None)
-    if text:
-        return text
-
-    # Try common nested shapes
-    try:
-        candidates = getattr(response, "candidates", None)
-        if candidates and len(candidates) > 0:
-            first = candidates[0]
-            content = getattr(first, "content", None)
-            if content and len(content) > 0:
-                part = content[0]
-                t = getattr(part, "text", None)
-                if t:
-                    return t
-            t = getattr(first, "text", None)
-            if t:
-                return t
-    except Exception:
-        pass
-
-    # Fallback to raw result dict or string
-    raw = getattr(response, "_result", None)
-    if raw is not None:
-        try:
-            return json.dumps(raw)
-        except Exception:
-            return str(raw)
-    return str(response)
-
-
 class GeminiProvider(LLMProvider):
-    """Google Gemini API provider using the modern google-genai Client API."""
+    """Google Gemini API provider."""
 
     def __init__(self):
         try:
-            # Modern google-genai exposes a Client via `from google import genai`.
-            # We explicitly migrate to this API surface.
-            from google import genai
-
-            # Allow the client to pick up the key from environment if GEMINI_API_KEY is None.
-            self.client = genai.Client(api_key=settings.GEMINI_API_KEY or None)
+            import google.genai as genai
+            genai.configure(api_key=settings.GEMINI_API_KEY)
+            self.client = genai.GenerativeModel("gemini-pro")
         except Exception as e:
-            logger.error(f"Failed to initialize Gemini (google-genai Client): {e}")
+            logger.error(f"Failed to initialize Gemini: {e}")
             raise
 
     async def extract(self, content: str, rules: str) -> dict[str, Any]:
-        """Extract data using Gemini (google-genai Client).
-
-        Uses the modern generate_content signature: client.generate_content(model=..., prompt=...)
-        """
+        """Extract data using Gemini."""
         prompt = f"""You are a data extraction expert. Extract information from the following content based on the rules provided.
 
 CONTENT:
@@ -182,14 +137,9 @@ EXTRACTION RULES:
 Return ONLY valid JSON with the extracted data. Do not include markdown formatting or any other text."""
 
         try:
-            # Call the blocking client in a thread to avoid blocking the event loop
-            response = await asyncio.to_thread(
-                self.client.generate_content,
-                model="gemini-pro",
-                prompt=prompt,
-            )
-
-            result_text = _strip_code_fence(_extract_response_text(response))
+            # Gemini client is blocking — run in a thread to avoid blocking the event loop
+            response = await asyncio.to_thread(self.client.generate_content, prompt)
+            result_text = _strip_code_fence(response.text)
             data = json.loads(result_text)
             return data
         except json.JSONDecodeError as e:
