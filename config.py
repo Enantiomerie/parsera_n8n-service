@@ -4,7 +4,6 @@ Configuration and environment variables for Parsera service.
 import json
 from typing import Optional
 from pydantic_settings import BaseSettings
-from pydantic import field_validator
 
 
 class Settings(BaseSettings):
@@ -39,32 +38,7 @@ class Settings(BaseSettings):
     MAX_EXTRACTION_RULES_LENGTH: int = 5000
     
     # Validation
-    VALIDATE_JSON_OUTPUT: bool = true
-
-    @field_validator("VALIDATE_JSON_OUTPUT", mode="before")
-    @classmethod
-    def _parse_validate_json_output(cls, v):
-        """Coerce common boolean-like environment values into a Python bool.
-
-        Accepts: true/false, 1/0, yes/no, on/off (case-insensitive).
-        Raises a clear ValueError for anything else so startup fails with a helpful message.
-        """
-        # If not provided, let pydantic use the default defined on the field
-        if v is None:
-            return v
-        # Already a bool
-        if isinstance(v, bool):
-            return v
-        # Coerce common string forms
-        if isinstance(v, str):
-            s = v.strip().lower()
-            if s in ("1", "true", "t", "yes", "y", "on"):
-                return True
-            if s in ("0", "false", "f", "no", "n", "off"):
-                return False
-        raise ValueError(
-            f"VALIDATE_JSON_OUTPUT must be a boolean-like value (true/false/1/0), got: {v!r}"
-        )
+    VALIDATE_JSON_OUTPUT: bool = True
 
     class Config:
         env_file = ".env"
