@@ -116,7 +116,7 @@ class GeminiProvider(LLMProvider):
 
     def __init__(self):
         try:
-            import google.generativeai as genai
+            import google.genai as genai
             genai.configure(api_key=settings.GEMINI_API_KEY)
             self.client = genai.GenerativeModel("gemini-pro")
         except Exception as e:
