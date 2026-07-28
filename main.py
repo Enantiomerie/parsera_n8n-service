@@ -93,6 +93,24 @@ class LLMProvider:
         raise NotImplementedError
 
 
+def _strip_code_fence(text: str) -> str:
+    """Strip common Markdown code fence wrappers from LLM output.
+
+    Handles leading ```json, leading ``` and trailing ``` plus surrounding
+    whitespace. Centralizes logic so all providers behave consistently.
+    """
+    if not isinstance(text, str):
+        return ""
+    t = text.strip()
+    if t.startswith("```json"):
+        t = t[7:]
+    if t.startswith("```"):
+        t = t[3:]
+    if t.endswith("```"):
+        t = t[:-3]
+    return t.strip()
+
+
 class GeminiProvider(LLMProvider):
     """Google Gemini API provider."""
 
@@ -118,18 +136,9 @@ EXTRACTION RULES:
 Return ONLY valid JSON with the extracted data. Do not include markdown formatting or any other text."""
 
         try:
-            response = self.client.generate_content(prompt)
-            result_text = response.text.strip()
-            
-            # Remove markdown code blocks if present
-            if result_text.startswith("```json"):
-                result_text = result_text[7:]
-            if result_text.startswith("```"):
-                result_text = result_text[3:]
-            if result_text.endswith("```"):
-                result_text = result_text[:-3]
-            
-            result_text = result_text.strip()
+            # Gemini client is blocking — run in a thread to avoid blocking the event loop
+            response = await asyncio.to_thread(self.client.generate_content, prompt)
+            result_text = _strip_code_fence(response.text)
             data = json.loads(result_text)
             return data
         except json.JSONDecodeError as e:
@@ -164,22 +173,14 @@ EXTRACTION RULES:
 Return ONLY valid JSON with the extracted data. Do not include markdown formatting or any other text."""
 
         try:
-            response = self.client.chat.completions.create(
+            # OpenAI client call is blocking — run in a thread
+            response = await asyncio.to_thread(
+                self.client.chat.completions.create,
                 model=settings.OPENAI_MODEL,
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0,
             )
-            result_text = response.choices[0].message.content.strip()
-            
-            # Remove markdown code blocks if present
-            if result_text.startswith("```json"):
-                result_text = result_text[7:]
-            if result_text.startswith("```"):
-                result_text = result_text[3:]
-            if result_text.endswith("```"):
-                result_text = result_text[:-3]
-            
-            result_text = result_text.strip()
+            result_text = _strip_code_fence(response.choices[0].message.content)
             data = json.loads(result_text)
             return data
         except json.JSONDecodeError as e:
@@ -221,17 +222,7 @@ Return ONLY valid JSON with the extracted data. Do not include markdown formatti
                 )
                 response.raise_for_status()
                 result = response.json()
-                result_text = result.get("response", "").strip()
-                
-                # Remove markdown code blocks if present
-                if result_text.startswith("```json"):
-                    result_text = result_text[7:]
-                if result_text.startswith("```"):
-                    result_text = result_text[3:]
-                if result_text.endswith("```"):
-                    result_text = result_text[:-3]
-                
-                result_text = result_text.strip()
+                result_text = _strip_code_fence(result.get("response", ""))
                 data = json.loads(result_text)
                 return data
         except json.JSONDecodeError as e:
