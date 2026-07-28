@@ -1,6 +1,7 @@
 services:
   browserless:
     image: browserless/chrome:latest
+    container_name: parsera-browser
     networks:
       - n8n_net
     environment:
@@ -16,6 +17,7 @@ services:
 
   parsera:
     image: enantiomerie/parsera:latest
+    container_name: parsera
     networks:
       - n8n_net
     depends_on:
