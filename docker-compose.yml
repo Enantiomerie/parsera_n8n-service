@@ -1,47 +1,48 @@
-version: "3.8"
-
 services:
   parsera:
     build: .
     container_name: parsera
-
     ports:
       - "8000:8000"
-
     environment:
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
 
       LLM_PROVIDER: ${LLM_PROVIDER:-gemini}
 
-      GEMINI_API_KEY: ${GEMINI_API_KEY}
-      GEMINI_MODEL: ${GEMINI_MODEL:-gemini-pro}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      GEMINI_MODEL: ${GEMINI_MODEL:-gemini-1.5-flash}
 
-      OPENAI_API_KEY: ${OPENAI_API_KEY}
-      OPENAI_MODEL: ${OPENAI_MODEL:-gpt-3.5-turbo}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_MODEL: ${OPENAI_MODEL:-gpt-4o-mini}
 
       OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://ollama:11434}
       OLLAMA_MODEL: ${OLLAMA_MODEL:-llama2}
 
       REQUEST_TIMEOUT: ${REQUEST_TIMEOUT:-60}
-
       MAX_URL_LENGTH: ${MAX_URL_LENGTH:-2000}
       MAX_EXTRACTION_RULES_LENGTH: ${MAX_EXTRACTION_RULES_LENGTH:-5000}
-
       VALIDATE_JSON_OUTPUT: ${VALIDATE_JSON_OUTPUT:-true}
 
       PLAYWRIGHT_STEALTH: ${PLAYWRIGHT_STEALTH:-true}
-      CUSTOM_COOKIES_JSON: ${CUSTOM_COOKIES_JSON:-""}
-
+      CUSTOM_COOKIES_JSON: ${CUSTOM_COOKIES_JSON:-}
+      PARSERA_SCROLLS_LIMIT: ${PARSERA_SCROLLS_LIMIT:-0}
+    ipc: host
     restart: unless-stopped
-
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=5)",
+        ]
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 10s
+      start_period: 15s
+    networks:
+      - n8n_net
 
 networks:
-  default:
+  n8n_net:
     external: true
-    name: n8n_net
