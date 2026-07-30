@@ -216,4 +216,47 @@ async def health() -> HealthResponse:
     llm_configured, _ = validate_llm_config()
 
     return HealthResponse(
-        status="healthy" if parsera_available and 
+        status="healthy" if parsera_available and llm_configured else "unhealthy",
+        parsera_available=parsera_available,
+        llm_configured=llm_configured,
+    )
+
+
+@app.post("/scrape", response_model=ScrapeResponse)
+async def scrape(request: ScrapeRequest) -> ScrapeResponse:
+    start_time = time.time()
+    provider = settings.LLM_PROVIDER.lower()
+
+    try:
+        logger.info("Starting scrape request for URL: %s", request.url)
+
+        parser = build_parsera()
+        result = await run_parsera(parser, request)
+
+        processing_time_ms = int((time.time() - start_time) * 1000)
+
+        logger.info(
+            "Scrape request completed successfully in %sms",
+            processing_time_ms,
+        )
+
+        return ScrapeResponse(
+            success=True,
+            data=result,
+            error=None,
+            provider=provider,
+            processing_time_ms=processing_time_ms,
+        )
+
+    except Exception as exc:
+        processing_time_ms = int((time.time() - start_time) * 1000)
+
+        logger.exception("Scrape request failed: %s", exc)
+
+        return ScrapeResponse(
+            success=False,
+            data=None,
+            error=str(exc),
+            provider=provider,
+            processing_time_ms=processing_time_ms,
+        )
