@@ -42,24 +42,17 @@ class ScrapeRequest(BaseModel):
 
     elements: Optional[dict[str, str]] = Field(
         None,
-        description=(
-            "Parsera elements dictionary. Example: "
-            "{'title': 'Product title', 'price': 'Product price'}"
-        ),
+        description="Parsera elements dictionary",
     )
 
     extraction_rules: Optional[str] = Field(
         None,
-        description=(
-            "Free-form extraction rules. Used only if elements is not provided."
-        ),
+        description="Free-form extraction rules. Used only if elements is not provided.",
     )
 
     wait_selector: Optional[str] = Field(
         None,
-        description=(
-            "Kept for API compatibility. Currently not used by Parsera integration."
-        ),
+        description="Kept for API compatibility. Currently not used by Parsera integration.",
     )
 
     @field_validator("url")
@@ -149,9 +142,6 @@ def _filter_supported_kwargs(
 ) -> dict[str, Any]:
     """
     Pass only kwargs supported by the installed Parsera version.
-
-    This makes the service more robust if Parsera changes optional constructor
-    or method parameters between releases.
     """
     try:
         signature = inspect.signature(callable_obj)
@@ -165,7 +155,7 @@ def _filter_supported_kwargs(
 
         return {key: value for key, value in kwargs.items() if key in parameters}
     except Exception:
-        return {}
+        return kwargs
 
 
 def build_llm_model() -> Any:
@@ -229,7 +219,7 @@ async def run_parsera(parser: Any, request: ScrapeRequest) -> Any:
     """
     Run Parsera using arun(url=..., elements=...).
 
-    Preferred:
+    Preferred body:
     {
       "url": "https://example.com",
       "elements": {
@@ -238,7 +228,7 @@ async def run_parsera(parser: Any, request: ScrapeRequest) -> Any:
       }
     }
 
-    Fallback:
+    Fallback body:
     {
       "url": "https://example.com",
       "extraction_rules": "Extract title and price"
@@ -284,7 +274,7 @@ app = FastAPI(
 )
 
 
-@app.get("/", response_model=dict)
+@app.get("/")
 async def root() -> dict[str, str]:
     return {
         "service": "Parsera n8n Service",
