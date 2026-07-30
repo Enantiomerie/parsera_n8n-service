@@ -1,6 +1,5 @@
 FROM python:3.11-slim-bookworm AS builder
 
-# Install build + Playwright system dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     libnss3 \
@@ -20,46 +19,41 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /build
 
-# Copy requirements and install dependencies in virtual environment
 COPY requirements.txt .
+
 RUN python -m venv /opt/venv
+
 ENV PATH="/opt/venv/bin:$PATH"
+
+RUN pip install --upgrade pip
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Install Playwright browser binaries (with deps)
 RUN python -m playwright install --with-deps
-
 
 FROM python:3.11-slim-bookworm
 
-# Install runtime dependencies only
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Create non-root user
 RUN useradd -m -u 1000 parsera
 
 WORKDIR /app
 
-# Copy virtual environment from builder
 COPY --from=builder /opt/venv /opt/venv
 
-# Copy application code
-COPY --chown=parsera:parsera main.py .
-COPY --chown=parsera:parsera config.py .
+COPY . .
 
-# Set environment
-ENV PATH="/opt/venv/bin:$PATH" \
-    PYTHONUNBUFFERED=1 \
-    PYTHONDONTWRITEBYTECODE=1
+ENV PATH="/opt/venv/bin:$PATH"
+ENV PYTHONUNBUFFERED=1
+ENV PYTHONDONTWRITEBYTECODE=1
 
-# Switch to non-root user
+RUN chown -R parsera:parsera /app
+
 USER parsera
 
-# Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD curl -f http://localhost:8000/health || exit 1
+  CMD curl -f http://localhost:8000/health || exit 1
 
 EXPOSE 8000
 
