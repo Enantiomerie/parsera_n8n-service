@@ -108,7 +108,7 @@ def build_llm_model() -> Any:
 
         return ChatGoogleGenerativeAI(
             model=settings.GEMINI_MODEL,
-            google_api_key=settings.GEMINI_API_KEY,
+            api_key=settings.GEMINI_API_KEY,
             temperature=0,
         )
 
