@@ -1,8 +1,19 @@
 """
 Parsera FastAPI service for n8n integration.
 
-This version uses raznem/parsera directly with Playwright and configurable
-LangChain LLM providers: Gemini, OpenAI or Ollama.
+Supports direct Parsera "elements" in the POST body and keeps
+"extraction_rules" as a backwards-compatible fallback.
+
+Example POST body:
+
+{
+  "url": "https://example.com/products",
+  "elements": {
+    "title": "Product title",
+    "price": "Product price including currency",
+    "availability": "Availability status"
+  }
+}
 """
 
 import inspect
@@ -13,9 +24,10 @@ from datetime import datetime
 from typing import Any, Optional
 
 from fastapi import FastAPI
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from config import settings, validate_llm_config
+
 
 logging.basicConfig(
     level=settings.LOG_LEVEL,
@@ -27,10 +39,27 @@ logger = logging.getLogger(__name__)
 
 class ScrapeRequest(BaseModel):
     url: str = Field(..., description="URL to scrape")
-    extraction_rules: str = Field(..., description="Extraction rules for the LLM")
+
+    elements: Optional[dict[str, str]] = Field(
+        None,
+        description=(
+            "Parsera elements dictionary. Example: "
+            "{'title': 'Product title', 'price': 'Product price'}"
+        ),
+    )
+
+    extraction_rules: Optional[str] = Field(
+        None,
+        description=(
+            "Free-form extraction rules. Used only if elements is not provided."
+        ),
+    )
+
     wait_selector: Optional[str] = Field(
         None,
-        description="Kept for API compatibility. Currently not used by Parsera integration.",
+        description=(
+            "Kept for API compatibility. Currently not used by Parsera integration."
+        ),
     )
 
     @field_validator("url")
@@ -44,9 +73,41 @@ class ScrapeRequest(BaseModel):
 
         return value
 
+    @field_validator("elements")
+    @classmethod
+    def validate_elements(
+        cls,
+        value: Optional[dict[str, str]],
+    ) -> Optional[dict[str, str]]:
+        if value is None:
+            return value
+
+        if not value:
+            raise ValueError("elements cannot be empty")
+
+        cleaned_elements: dict[str, str] = {}
+
+        for key, description in value.items():
+            if not isinstance(key, str) or not key.strip():
+                raise ValueError("element names must be non-empty strings")
+
+            if not isinstance(description, str) or not description.strip():
+                raise ValueError(
+                    f"element '{key}' must have a non-empty string description"
+                )
+
+            cleaned_elements[key.strip()] = description.strip()
+
+        return cleaned_elements
+
     @field_validator("extraction_rules")
     @classmethod
-    def validate_extraction_rules(cls, value: str) -> str:
+    def validate_extraction_rules(
+        cls,
+        value: Optional[str],
+    ) -> Optionalif value is None:
+            return value
+
         if len(value) > settings.MAX_EXTRACTION_RULES_LENGTH:
             raise ValueError(
                 f"Extraction rules exceed max length of "
@@ -54,9 +115,16 @@ class ScrapeRequest(BaseModel):
             )
 
         if not value.strip():
-            raise ValueError("Extraction rules cannot be empty")
+            raise ValueError("extraction_rules cannot be empty")
 
-        return value
+        return value.strip()
+
+    @model_validator(mode="after")
+    def validate_extraction_input(self) -> "ScrapeRequest":
+        if not self.elements and not self.extraction_rules:
+            raise ValueError("Either 'elements' or 'extraction_rules' must be provided")
+
+        return self
 
 
 class ScrapeResponse(BaseModel):
@@ -75,7 +143,10 @@ class HealthResponse(BaseModel):
     llm_configured: bool
 
 
-def _filter_supported_kwargs(callable_obj: Any, kwargs: dict[str, Any]) -> dict[str, Any]:
+def _filter_supported_kwargs(
+    callable_obj: Any,
+    kwargs: dict[str, Any],
+) -> dict[str, Any]:
     """
     Pass only kwargs supported by the installed Parsera version.
 
@@ -86,7 +157,10 @@ def _filter_supported_kwargs(callable_obj: Any, kwargs: dict[str, Any]) -> dict[
         signature = inspect.signature(callable_obj)
         parameters = signature.parameters
 
-        if any(param.kind == inspect.Parameter.VAR_KEYWORD for param in parameters.values()):
+        if any(
+            param.kind == inspect.Parameter.VAR_KEYWORD
+            for param in parameters.values()
+        ):
             return kwargs
 
         return {key: value for key, value in kwargs.items() if key in parameters}
@@ -97,9 +171,6 @@ def _filter_supported_kwargs(callable_obj: Any, kwargs: dict[str, Any]) -> dict[
 def build_llm_model() -> Any:
     """
     Build a LangChain chat model for Parsera.
-
-    Parsera documents custom models via Parsera(model=llm), so we use the
-    LangChain integrations instead of a custom Parsera extractor.
     """
     provider = settings.LLM_PROVIDER.lower()
 
@@ -137,19 +208,17 @@ def build_llm_model() -> Any:
 def build_parsera() -> Any:
     """
     Create a Parsera instance with supported kwargs only.
-
-    Known Parsera docs show Parsera(model=llm). Some versions also support
-    optional Playwright settings such as stealth/custom_cookies. We pass those
-    only if the installed version supports them.
     """
     from parsera import Parsera
 
     llm = build_llm_model()
 
+    custom_cookies = getattr(settings, "CUSTOM_COOKIES", None)
+
     kwargs = {
         "model": llm,
         "stealth": settings.PLAYWRIGHT_STEALTH,
-        "custom_cookies": settings.CUSTOM_COOKIES,
+        "custom_cookies": custom_cookies,
     }
 
     supported_kwargs = _filter_supported_kwargs(Parsera, kwargs)
@@ -158,15 +227,29 @@ def build_parsera() -> Any:
 
 async def run_parsera(parser: Any, request: ScrapeRequest) -> Any:
     """
-    Run Parsera using its documented arun(url, elements=...) style API.
+    Run Parsera using arun(url=..., elements=...).
 
-    The service accepts free-form extraction rules from n8n. Parsera expects an
-    elements dictionary with field names and descriptions, so we map the user's
-    rules into a single generic field called "data".
-    """
-    elements = {
-        "data": request.extraction_rules.strip(),
+    Preferred:
+    {
+      "url": "https://example.com",
+      "elements": {
+        "title": "Product title",
+        "price": "Product price"
+      }
     }
+
+    Fallback:
+    {
+      "url": "https://example.com",
+      "extraction_rules": "Extract title and price"
+    }
+    """
+    if request.elements:
+        elements = request.elements
+    else:
+        elements = {
+            "data": request.extraction_rules.strip(),
+        }
 
     kwargs = {
         "url": request.url,
@@ -176,14 +259,12 @@ async def run_parsera(parser: Any, request: ScrapeRequest) -> Any:
 
     supported_kwargs = _filter_supported_kwargs(parser.arun, kwargs)
 
-    # If the installed Parsera version does not expose scrolls_limit, the safe
-    # filtered fallback will still call arun(url=..., elements=...).
     return await parser.arun(**supported_kwargs)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    logger.info("Starting Parsera n8n service using raznem/parsera")
+    logger.info("Starting Parsera n8n service")
 
     is_valid, error = validate_llm_config()
     if not is_valid:
@@ -197,10 +278,20 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="Parsera n8n Service",
-    description="FastAPI wrapper for raznem/parsera with configurable LangChain LLMs",
-    version="1.0.0",
+    description="FastAPI wrapper for Parsera with direct elements support",
+    version="1.1.0",
     lifespan=lifespan,
 )
+
+
+@app.get("/", response_model=dict)
+async def root() -> dict[str, str]:
+    return {
+        "service": "Parsera n8n Service",
+        "status": "running",
+        "health": "/health",
+        "scrape": "/scrape",
+    }
 
 
 @app.get("/health", response_model=HealthResponse)
