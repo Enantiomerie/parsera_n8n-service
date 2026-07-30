@@ -1,61 +1,38 @@
+version: "3.8"
+
 services:
-  browserless:
-    image: browserless/chrome:latest
-    container_name: parsera-browser
-    networks:
-      - n8n_net
-    environment:
-      DEBUG: "false"
-      PUPPETEER_SKIP_CHROMIUM_DOWNLOAD: "true"
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:3000/"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 10s
-
   parsera:
-    image: enantiomerie/parsera_n8n-service:latest
+    build: .
     container_name: parsera
-    networks:
-      - n8n_net
-    depends_on:
-      browserless:
-        condition: service_healthy
 
-    restart: unless-stopped
+    ports:
+      - "8000:8000"
 
     environment:
-      # Service
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
 
-      # Browserless
-      BROWSERLESS_URL: http://browserless:3000
-      BROWSERLESS_TIMEOUT: ${BROWSERLESS_TIMEOUT:-30}
-      BROWSERLESS_RETRIES: ${BROWSERLESS_RETRIES:-1}
-
-      # LLM Provider: gemini, openai, or ollama
       LLM_PROVIDER: ${LLM_PROVIDER:-gemini}
 
-      # Google Gemini
       GEMINI_API_KEY: ${GEMINI_API_KEY}
+      GEMINI_MODEL: ${GEMINI_MODEL:-gemini-pro}
 
-      # OpenAI
       OPENAI_API_KEY: ${OPENAI_API_KEY}
       OPENAI_MODEL: ${OPENAI_MODEL:-gpt-3.5-turbo}
 
-      # Ollama
       OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://ollama:11434}
       OLLAMA_MODEL: ${OLLAMA_MODEL:-llama2}
 
-      # Request configuration
       REQUEST_TIMEOUT: ${REQUEST_TIMEOUT:-60}
+
       MAX_URL_LENGTH: ${MAX_URL_LENGTH:-2000}
       MAX_EXTRACTION_RULES_LENGTH: ${MAX_EXTRACTION_RULES_LENGTH:-5000}
 
-      # Validation
       VALIDATE_JSON_OUTPUT: ${VALIDATE_JSON_OUTPUT:-true}
+
+      PLAYWRIGHT_STEALTH: ${PLAYWRIGHT_STEALTH:-true}
+      CUSTOM_COOKIES_JSON: ${CUSTOM_COOKIES_JSON:-""}
+
+    restart: unless-stopped
 
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
@@ -65,5 +42,6 @@ services:
       start_period: 10s
 
 networks:
-  n8n_net:
+  default:
     external: true
+    name: n8n_net
