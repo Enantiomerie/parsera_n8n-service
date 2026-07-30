@@ -1,19 +1,7 @@
 """
 Parsera FastAPI service for n8n integration.
 
-Supports direct Parsera "elements" in the POST body and keeps
-"extraction_rules" as a backwards-compatible fallback.
-
-Example POST body:
-
-{
-  "url": "https://example.com/products",
-  "elements": {
-    "title": "Product title",
-    "price": "Product price including currency",
-    "availability": "Availability status"
-  }
-}
+This version uses only Parsera "elements" in the POST body.
 """
 
 import inspect
@@ -28,7 +16,6 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 
 from config import settings, validate_llm_config
 
-
 logging.basicConfig(
     level=settings.LOG_LEVEL,
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
@@ -40,14 +27,9 @@ logger = logging.getLogger(__name__)
 class ScrapeRequest(BaseModel):
     url: str = Field(..., description="URL to scrape")
 
-    elements: Optional[dict[str, str]] = Field(
-        None,
+    elements: dict[str, str] = Field(
+        ...,
         description="Parsera elements dictionary",
-    )
-
-    extraction_rules: Optional[str] = Field(
-        None,
-        description="Free-form extraction rules. Used only if elements is not provided.",
     )
 
     wait_selector: Optional[str] = Field(
@@ -68,13 +50,7 @@ class ScrapeRequest(BaseModel):
 
     @field_validator("elements")
     @classmethod
-    def validate_elements(
-        cls,
-        value: Optional[dict[str, str]],
-    ) -> Optional[dict[str, str]]:
-        if value is None:
-            return value
-
+    def validate_elements(cls, value: dict[str, str]) -> dict[str, str]:
         if not value:
             raise ValueError("elements cannot be empty")
 
@@ -93,29 +69,10 @@ class ScrapeRequest(BaseModel):
 
         return cleaned_elements
 
-    @field_validator("extraction_rules")
-    @classmethod
-    def validate_extraction_rules(
-        cls,
-        value: Optional[str],
-    ) -> Optionalif value is None:
-            return value
-
-        if len(value) > settings.MAX_EXTRACTION_RULES_LENGTH:
-            raise ValueError(
-                f"Extraction rules exceed max length of "
-                f"{settings.MAX_EXTRACTION_RULES_LENGTH}"
-            )
-
-        if not value.strip():
-            raise ValueError("extraction_rules cannot be empty")
-
-        return value.strip()
-
     @model_validator(mode="after")
     def validate_extraction_input(self) -> "ScrapeRequest":
-        if not self.elements and not self.extraction_rules:
-            raise ValueError("Either 'elements' or 'extraction_rules' must be provided")
+        if not self.elements:
+            raise ValueError("'elements' must be provided and cannot be empty")
 
         return self
 
@@ -202,7 +159,6 @@ def build_parsera() -> Any:
     from parsera import Parsera
 
     llm = build_llm_model()
-
     custom_cookies = getattr(settings, "CUSTOM_COOKIES", None)
 
     kwargs = {
@@ -218,37 +174,14 @@ def build_parsera() -> Any:
 async def run_parsera(parser: Any, request: ScrapeRequest) -> Any:
     """
     Run Parsera using arun(url=..., elements=...).
-
-    Preferred body:
-    {
-      "url": "https://example.com",
-      "elements": {
-        "title": "Product title",
-        "price": "Product price"
-      }
-    }
-
-    Fallback body:
-    {
-      "url": "https://example.com",
-      "extraction_rules": "Extract title and price"
-    }
     """
-    if request.elements:
-        elements = request.elements
-    else:
-        elements = {
-            "data": request.extraction_rules.strip(),
-        }
-
     kwargs = {
         "url": request.url,
-        "elements": elements,
+        "elements": request.elements,
         "scrolls_limit": settings.PARSERA_SCROLLS_LIMIT,
     }
 
     supported_kwargs = _filter_supported_kwargs(parser.arun, kwargs)
-
     return await parser.arun(**supported_kwargs)
 
 
@@ -268,8 +201,8 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="Parsera n8n Service",
-    description="FastAPI wrapper for Parsera with direct elements support",
-    version="1.1.0",
+    description="FastAPI wrapper for Parsera with elements-only support",
+    version="1.2.0",
     lifespan=lifespan,
 )
 
@@ -281,6 +214,7 @@ async def root() -> dict[str, str]:
         "status": "running",
         "health": "/health",
         "scrape": "/scrape",
+        "mode": "elements-only",
     }
 
 
