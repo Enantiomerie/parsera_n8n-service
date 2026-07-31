@@ -1,36 +1,43 @@
 # Parsera n8n Service
 
-Self-hosted FastAPI service for n8n that wraps `raznem/parsera` and uses Playwright internally for web scraping plus a configurable LangChain LLM for extraction.
+Self-hosted HTTP service that wraps the Python `parsera` library behind a simple HTTP API.
 
-This branch replaces the old Browserless architecture. Browserless is no longer required.
+The service runs Parsera and Playwright Chromium inside the same container.
+
+No Browserless service is required.  
+No Firefox browser is installed or used.
 
 ## Features
 
-- Uses `raznem/parsera` directly
-- Uses Playwright inside the service container
-- Supports Gemini, OpenAI and Ollama through LangChain
-- Simple HTTP API for n8n
-- Docker Compose deployment
-- Non-root runtime user
-- Health check endpoint
+- FastAPI HTTP API
+- `GET /health`
+- `POST /scrape`
+- Parsera-based extraction
+- Internal Playwright Chromium browser
+- Custom LLM support via LangChain provider packages
+- Supported LLM providers:
+  - Parsera API
+  - Gemini
+  - OpenAI
+  - Ollama
+- Docker Compose ready
+- n8n compatible
+- Can also be used without n8n
+- Runtime limits for URL length, extraction rule length and scroll count
 
 ## Architecture
 
 ```text
-n8n
+Client, n8n or another HTTP caller
   |
   | HTTP POST /scrape
   v
 Parsera n8n Service
   |
-  | internal Playwright browser automation
+  | internal Python call
   v
-Target website
+Parsera
   |
-  | extracted page content
+  | internal Playwright
   v
-LangChain LLM provider
-  |
-  | structured result
-  v
-n8n
+Chromium inside the same container

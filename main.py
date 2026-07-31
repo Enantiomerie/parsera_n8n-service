@@ -1,277 +1,378 @@
-"""
-Parsera FastAPI service for n8n integration.
-
-This version uses only Parsera "elements" in the POST body.
-"""
-
 import inspect
+import json
 import logging
-import time
-from contextlib import asynccontextmanager
-from datetime import datetime
-from typing import Any, Optional
+import os
+from datetime import datetime, timezone
+from typing import Any
 
 from fastapi import FastAPI
-from pydantic import BaseModel, Field, field_validator, model_validator
+from fastapi.responses import JSONResponse
+from pydantic import BaseModel, Field, HttpUrl, model_validator
 
-from config import settings, validate_llm_config
+from config import settings
+
 
 logging.basicConfig(
-    level=settings.LOG_LEVEL,
+    level=getattr(logging, settings.log_level.upper(), logging.INFO),
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
 )
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("main")
+
+
+def patch_parsera_to_use_chromium() -> None:
+    """
+    Ensures that Parsera uses Playwright Chromium inside this container.
+    Only Chromium is installed during the Docker image build.
+    """
+    try:
+        import parsera.page as parsera_page
+    except Exception as exc:
+        logger.warning("Could not import parsera.page for Chromium patch: %s", exc)
+        return
+
+    async def new_browser_chromium(self: Any) -> None:
+        launch_args = [
+            "--no-sandbox",
+            "--disable-dev-shm-usage",
+            "--disable-gpu",
+            "--disable-setuid-sandbox",
+        ]
+
+        self.browser = await self.playwright.chromium.launch(
+            headless=True,
+            args=launch_args,
+        )
+
+    patched_classes: list[str] = []
+
+    for class_name, klass in inspect.getmembers(parsera_page, inspect.isclass):
+        if klass.__module__ != parsera_page.__name__:
+            continue
+
+        if hasattr(klass, "new_browser"):
+            setattr(klass, "new_browser", new_browser_chromium)
+            patched_classes.append(class_name)
+
+    if patched_classes:
+        logger.info("Patched Parsera browser launcher to Chromium for: %s", patched_classes)
+    else:
+        logger.warning("No Parsera class with new_browser found. Chromium patch was not applied.")
+
+
+patch_parsera_to_use_chromium()
 
 
 class ScrapeRequest(BaseModel):
-    url: str = Field(..., description="URL to scrape")
+    url: HttpUrl = Field(..., description="URL to scrape")
 
-    elements: dict[str, str] = Field(
-        ...,
-        description="Parsera elements dictionary",
+    elements: dict[str, str] | None = Field(
+        default=None,
+        description="Parsera element mapping, for example {'title': 'Page title'}",
     )
 
-    wait_selector: Optional[str] = Field(
-        None,
-        description="Kept for API compatibility. Currently not used by Parsera integration.",
+    extraction_rules: str | None = Field(
+        default=None,
+        description="Compatibility field. Used only when elements is not provided.",
     )
 
-    @field_validator("url")
-    @classmethod
-    def validate_url(cls, value: str) -> str:
-        if len(value) > settings.MAX_URL_LENGTH:
-            raise ValueError(f"URL exceeds max length of {settings.MAX_URL_LENGTH}")
+    wait_selector: str | None = Field(
+        default=None,
+        description="Optional CSS selector to wait for before extraction.",
+    )
 
-        if not value.startswith(("http://", "https://")):
-            raise ValueError("URL must start with http:// or https://")
+    wait_timeout_ms: int | None = Field(
+        default=None,
+        ge=1000,
+        le=120000,
+        description="Timeout for wait_selector in milliseconds.",
+    )
 
-        return value
-
-    @field_validator("elements")
-    @classmethod
-    def validate_elements(cls, value: dict[str, str]) -> dict[str, str]:
-        if not value:
-            raise ValueError("elements cannot be empty")
-
-        cleaned_elements: dict[str, str] = {}
-
-        for key, description in value.items():
-            if not isinstance(key, str) or not key.strip():
-                raise ValueError("element names must be non-empty strings")
-
-            if not isinstance(description, str) or not description.strip():
-                raise ValueError(
-                    f"element '{key}' must have a non-empty string description"
-                )
-
-            cleaned_elements[key.strip()] = description.strip()
-
-        return cleaned_elements
+    scrolls: int | None = Field(
+        default=None,
+        ge=0,
+        description="Optional scroll count if supported by the installed Parsera version.",
+    )
 
     @model_validator(mode="after")
-    def validate_extraction_input(self) -> "ScrapeRequest":
-        if not self.elements:
-            raise ValueError("'elements' must be provided and cannot be empty")
+    def validate_request_limits(self):
+        url_as_string = str(self.url)
+
+        if len(url_as_string) > settings.max_url_length:
+            raise ValueError(
+                f"URL is too long. Maximum allowed length is {settings.max_url_length} characters."
+            )
+
+        if self.extraction_rules is not None:
+            if len(self.extraction_rules) > settings.max_extraction_rules_length:
+                raise ValueError(
+                    "extraction_rules is too long. "
+                    f"Maximum allowed length is {settings.max_extraction_rules_length} characters."
+                )
+
+        if self.elements is not None:
+            for key, value in self.elements.items():
+                if len(value) > settings.max_extraction_rules_length:
+                    raise ValueError(
+                        f"Element rule '{key}' is too long. "
+                        f"Maximum allowed length is {settings.max_extraction_rules_length} characters."
+                    )
+
+        if self.scrolls is not None:
+            if settings.parsera_scrolls_limit <= 0 and self.scrolls > 0:
+                raise ValueError("Scrolling is disabled by PARSERA_SCROLLS_LIMIT=0.")
+
+            if settings.parsera_scrolls_limit > 0 and self.scrolls > settings.parsera_scrolls_limit:
+                raise ValueError(
+                    f"Requested scrolls value {self.scrolls} exceeds "
+                    f"PARSERA_SCROLLS_LIMIT={settings.parsera_scrolls_limit}."
+                )
 
         return self
 
 
 class ScrapeResponse(BaseModel):
     success: bool
-    data: Optional[Any] = None
-    error: Optional[str] = None
-    provider: str
-    processing_time_ms: int
-    timestamp: datetime = Field(default_factory=datetime.utcnow)
+    url: str
+    result: Any | None = None
+    error: str | None = None
+    timestamp: str
 
 
 class HealthResponse(BaseModel):
     status: str
-    timestamp: datetime = Field(default_factory=datetime.utcnow)
-    parsera_available: bool
+    service: str
+    timestamp: str
+    playwright_browser: str
+    playwright_browsers_path: str | None
+    llm_provider: str
     llm_configured: bool
+    max_url_length: int
+    max_extraction_rules_length: int
+    validate_json_output: bool
+    parsera_scrolls_limit: int
 
 
-def _filter_supported_kwargs(
-    callable_obj: Any,
-    kwargs: dict[str, Any],
-) -> dict[str, Any]:
-    """
-    Pass only kwargs supported by the installed Parsera version.
-    """
-    try:
-        signature = inspect.signature(callable_obj)
-        parameters = signature.parameters
-
-        if any(
-            param.kind == inspect.Parameter.VAR_KEYWORD
-            for param in parameters.values()
-        ):
-            return kwargs
-
-        return {key: value for key, value in kwargs.items() if key in parameters}
-    except Exception:
-        return kwargs
+app = FastAPI(
+    title="Parsera n8n Service",
+    description="Self-hosted Parsera service for n8n using internal Playwright Chromium.",
+    version="2.0.0",
+)
 
 
-def build_llm_model() -> Any:
-    """
-    Build a LangChain chat model for Parsera.
-    """
-    provider = settings.LLM_PROVIDER.lower()
+def now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def normalized_provider() -> str:
+    return settings.llm_provider.lower().strip()
+
+
+def is_llm_configured() -> bool:
+    provider = normalized_provider()
+
+    if provider == "parsera":
+        return bool(settings.parsera_api_key or os.getenv("PARSERA_API_KEY"))
+
+    if provider == "openai":
+        return bool(settings.openai_api_key or os.getenv("OPENAI_API_KEY"))
 
     if provider == "gemini":
-        from langchain_google_genai import ChatGoogleGenerativeAI
+        return bool(settings.gemini_api_key or os.getenv("GEMINI_API_KEY"))
 
-        return ChatGoogleGenerativeAI(
-            model=settings.GEMINI_MODEL,
-            api_key=settings.GEMINI_API_KEY,
-            temperature=0,
-        )
+    if provider == "ollama":
+        return bool(settings.ollama_base_url and settings.ollama_model)
+
+    return False
+
+
+def build_llm_model() -> Any | None:
+    provider = normalized_provider()
+
+    if provider == "parsera":
+        if settings.parsera_api_key:
+            os.environ["PARSERA_API_KEY"] = settings.parsera_api_key
+        return None
 
     if provider == "openai":
         from langchain_openai import ChatOpenAI
 
-        return ChatOpenAI(
-            model=settings.OPENAI_MODEL,
-            api_key=settings.OPENAI_API_KEY,
-            temperature=0,
-            timeout=settings.REQUEST_TIMEOUT,
+        if settings.openai_api_key:
+            os.environ["OPENAI_API_KEY"] = settings.openai_api_key
+
+        kwargs: dict[str, Any] = {
+            "model": settings.openai_model,
+            "temperature": 0.0,
+            "timeout": settings.request_timeout_seconds,
+        }
+
+        if settings.openai_base_url:
+            kwargs["base_url"] = settings.openai_base_url
+
+        return ChatOpenAI(**kwargs)
+
+    if provider == "gemini":
+        from langchain_google_genai import ChatGoogleGenerativeAI
+
+        if settings.gemini_api_key:
+            os.environ["GOOGLE_API_KEY"] = settings.gemini_api_key
+            os.environ["GEMINI_API_KEY"] = settings.gemini_api_key
+
+        return ChatGoogleGenerativeAI(
+            model=settings.gemini_model,
+            temperature=0.0,
+            timeout=settings.request_timeout_seconds,
         )
 
     if provider == "ollama":
         from langchain_ollama import ChatOllama
 
         return ChatOllama(
-            model=settings.OLLAMA_MODEL,
-            base_url=settings.OLLAMA_BASE_URL,
-            temperature=0,
+            model=settings.ollama_model,
+            base_url=settings.ollama_base_url,
+            temperature=0.0,
         )
 
-    raise ValueError(f"Unknown LLM provider: {settings.LLM_PROVIDER}")
+    raise ValueError("Unsupported LLM_PROVIDER. Use one of: parsera, openai, gemini, ollama.")
 
 
-def build_parsera() -> Any:
-    """
-    Create a Parsera instance with supported kwargs only.
-    """
+def build_elements(request: ScrapeRequest) -> dict[str, str]:
+    if request.elements:
+        return request.elements
+
+    if request.extraction_rules:
+        return {
+            "data": request.extraction_rules,
+        }
+
+    raise ValueError("Either 'elements' or 'extraction_rules' must be provided.")
+
+
+def build_wait_script(request: ScrapeRequest):
+    if not request.wait_selector:
+        return None
+
+    selector = request.wait_selector
+    timeout_ms = request.wait_timeout_ms or settings.default_wait_timeout_ms
+
+    async def wait_script(page):
+        await page.wait_for_selector(selector, timeout=timeout_ms)
+        return page
+
+    return wait_script
+
+
+def validate_result_is_json_compatible(result: Any) -> Any:
+    if not settings.validate_json_output:
+        return result
+
+    try:
+        json.dumps(result)
+    except TypeError as exc:
+        raise ValueError(f"Parsera result is not JSON compatible: {exc}") from exc
+
+    return result
+
+
+async def run_parsera(request: ScrapeRequest) -> Any:
     from parsera import Parsera
 
-    llm = build_llm_model()
-    custom_cookies = getattr(settings, "CUSTOM_COOKIES", None)
+    model = build_llm_model()
 
-    kwargs = {
-        "model": llm,
-        "stealth": settings.PLAYWRIGHT_STEALTH,
-        "custom_cookies": custom_cookies,
+    if model is None:
+        parser = Parsera()
+    else:
+        parser = Parsera(model=model)
+
+    supported_kwargs: dict[str, Any] = {
+        "url": str(request.url),
+        "elements": build_elements(request),
     }
 
-    supported_kwargs = _filter_supported_kwargs(Parsera, kwargs)
-    return Parsera(**supported_kwargs)
+    playwright_script = build_wait_script(request)
 
+    if playwright_script is not None:
+        supported_kwargs["playwright_script"] = playwright_script
 
-async def run_parsera(parser: Any, request: ScrapeRequest) -> Any:
-    """
-    Run Parsera using arun(url=..., elements=...).
-    """
-    kwargs = {
-        "url": request.url,
-        "elements": request.elements,
-        "scrolls_limit": settings.PARSERA_SCROLLS_LIMIT,
+    if request.scrolls is not None:
+        supported_kwargs["scrolls"] = request.scrolls
+
+    signature = inspect.signature(parser.arun)
+
+    filtered_kwargs = {
+        key: value
+        for key, value in supported_kwargs.items()
+        if key in signature.parameters
     }
 
-    supported_kwargs = _filter_supported_kwargs(parser.arun, kwargs)
-    return await parser.arun(**supported_kwargs)
+    logger.info("Calling Parsera with kwargs: %s", list(filtered_kwargs.keys()))
+
+    result = await parser.arun(**filtered_kwargs)
+
+    return validate_result_is_json_compatible(result)
 
 
-@asynccontextmanager
-async def lifespan(app: FastAPI):
+@app.on_event("startup")
+async def startup_event() -> None:
     logger.info("Starting Parsera n8n service")
-
-    is_valid, error = validate_llm_config()
-    if not is_valid:
-        logger.error("LLM configuration invalid: %s", error)
-        raise RuntimeError(error)
-
-    yield
-
-    logger.info("Shutting down Parsera n8n service")
-
-
-app = FastAPI(
-    title="Parsera n8n Service",
-    description="FastAPI wrapper for Parsera with elements-only support",
-    version="1.2.0",
-    lifespan=lifespan,
-)
-
-
-@app.get("/")
-async def root() -> dict[str, str]:
-    return {
-        "service": "Parsera n8n Service",
-        "status": "running",
-        "health": "/health",
-        "scrape": "/scrape",
-        "mode": "elements-only",
-    }
+    logger.info("LLM provider: %s", settings.llm_provider)
+    logger.info("Playwright browser: chromium")
+    logger.info("Playwright browser path: %s", os.getenv("PLAYWRIGHT_BROWSERS_PATH"))
+    logger.info("MAX_URL_LENGTH: %s", settings.max_url_length)
+    logger.info("MAX_EXTRACTION_RULES_LENGTH: %s", settings.max_extraction_rules_length)
+    logger.info("VALIDATE_JSON_OUTPUT: %s", settings.validate_json_output)
+    logger.info("PARSERA_SCROLLS_LIMIT: %s", settings.parsera_scrolls_limit)
 
 
 @app.get("/health", response_model=HealthResponse)
 async def health() -> HealthResponse:
-    try:
-        import parsera  # noqa: F401
-
-        parsera_available = True
-    except Exception as exc:
-        logger.warning("Parsera import failed: %s", exc)
-        parsera_available = False
-
-    llm_configured, _ = validate_llm_config()
-
     return HealthResponse(
-        status="healthy" if parsera_available and llm_configured else "unhealthy",
-        parsera_available=parsera_available,
-        llm_configured=llm_configured,
+        status="healthy",
+        service=settings.service_name,
+        timestamp=now_iso(),
+        playwright_browser="chromium",
+        playwright_browsers_path=os.getenv("PLAYWRIGHT_BROWSERS_PATH"),
+        llm_provider=settings.llm_provider,
+        llm_configured=is_llm_configured(),
+        max_url_length=settings.max_url_length,
+        max_extraction_rules_length=settings.max_extraction_rules_length,
+        validate_json_output=settings.validate_json_output,
+        parsera_scrolls_limit=settings.parsera_scrolls_limit,
     )
 
 
 @app.post("/scrape", response_model=ScrapeResponse)
-async def scrape(request: ScrapeRequest) -> ScrapeResponse:
-    start_time = time.time()
-    provider = settings.LLM_PROVIDER.lower()
+async def scrape(request: ScrapeRequest) -> JSONResponse:
+    logger.info("Starting scrape request for URL: %s", request.url)
 
     try:
-        logger.info("Starting scrape request for URL: %s", request.url)
+        result = await run_parsera(request)
 
-        parser = build_parsera()
-        result = await run_parsera(parser, request)
-
-        processing_time_ms = int((time.time() - start_time) * 1000)
-
-        logger.info(
-            "Scrape request completed successfully in %sms",
-            processing_time_ms,
+        response = ScrapeResponse(
+            success=True,
+            url=str(request.url),
+            result=result,
+            error=None,
+            timestamp=now_iso(),
         )
 
-        return ScrapeResponse(
-            success=True,
-            data=result,
-            error=None,
-            provider=provider,
-            processing_time_ms=processing_time_ms,
+        return JSONResponse(
+            status_code=200,
+            content=response.model_dump(mode="json"),
         )
 
     except Exception as exc:
-        processing_time_ms = int((time.time() - start_time) * 1000)
-
         logger.exception("Scrape request failed: %s", exc)
 
-        return ScrapeResponse(
+        response = ScrapeResponse(
             success=False,
-            data=None,
+            url=str(request.url),
+            result=None,
             error=str(exc),
-            provider=provider,
-            processing_time_ms=processing_time_ms,
+            timestamp=now_iso(),
+        )
+
+        return JSONResponse(
+            status_code=500,
+            content=response.model_dump(mode="json"),
         )
