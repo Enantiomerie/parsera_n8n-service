@@ -23,8 +23,6 @@ class Settings(BaseSettings):
     request_timeout_seconds: int = Field(default=60, alias="REQUEST_TIMEOUT_SECONDS")
     default_wait_timeout_ms: int = Field(default=15000, alias="DEFAULT_WAIT_TIMEOUT_MS")
 
-    max_url_length: int = Field(default=2000, alias="MAX_URL_LENGTH")
-    max_extraction_rules_length: int = Field(default=5000, alias="MAX_EXTRACTION_RULES_LENGTH")
     validate_json_output: bool = Field(default=True, alias="VALIDATE_JSON_OUTPUT")
     parsera_scrolls_limit: int = Field(default=0, alias="PARSERA_SCROLLS_LIMIT")
 
