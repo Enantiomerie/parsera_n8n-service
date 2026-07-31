@@ -15,13 +15,18 @@ class Settings(BaseSettings):
     openai_base_url: str | None = Field(default=None, alias="OPENAI_BASE_URL")
 
     gemini_api_key: str | None = Field(default=None, alias="GEMINI_API_KEY")
-    gemini_model: str = Field(default="gemini-2.0-flash", alias="GEMINI_MODEL")
+    gemini_model: str = Field(default="gemini-2.5-flash", alias="GEMINI_MODEL")
 
     ollama_base_url: str = Field(default="http://ollama:11434", alias="OLLAMA_BASE_URL")
-    ollama_model: str = Field(default="llama3.1", alias="OLLAMA_MODEL")
+    ollama_model: str = Field(default="llama2", alias="OLLAMA_MODEL")
 
-    request_timeout_seconds: int = Field(default=180, alias="REQUEST_TIMEOUT_SECONDS")
+    request_timeout_seconds: int = Field(default=60, alias="REQUEST_TIMEOUT_SECONDS")
     default_wait_timeout_ms: int = Field(default=15000, alias="DEFAULT_WAIT_TIMEOUT_MS")
+
+    max_url_length: int = Field(default=2000, alias="MAX_URL_LENGTH")
+    max_extraction_rules_length: int = Field(default=5000, alias="MAX_EXTRACTION_RULES_LENGTH")
+    validate_json_output: bool = Field(default=True, alias="VALIDATE_JSON_OUTPUT")
+    parsera_scrolls_limit: int = Field(default=0, alias="PARSERA_SCROLLS_LIMIT")
 
     model_config = SettingsConfigDict(
         case_sensitive=False,
