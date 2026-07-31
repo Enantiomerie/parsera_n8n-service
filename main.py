@@ -1,4 +1,5 @@
 import inspect
+import json
 import logging
 import os
 from datetime import datetime, timezone
@@ -6,7 +7,7 @@ from typing import Any
 
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel, Field, HttpUrl
+from pydantic import BaseModel, Field, HttpUrl, model_validator
 
 from config import settings
 
@@ -90,9 +91,44 @@ class ScrapeRequest(BaseModel):
     scrolls: int | None = Field(
         default=None,
         ge=0,
-        le=20,
         description="Optional scroll count if supported by the installed Parsera version.",
     )
+
+    @model_validator(mode="after")
+    def validate_request_limits(self):
+        url_as_string = str(self.url)
+
+        if len(url_as_string) > settings.max_url_length:
+            raise ValueError(
+                f"URL is too long. Maximum allowed length is {settings.max_url_length} characters."
+            )
+
+        if self.extraction_rules is not None:
+            if len(self.extraction_rules) > settings.max_extraction_rules_length:
+                raise ValueError(
+                    "extraction_rules is too long. "
+                    f"Maximum allowed length is {settings.max_extraction_rules_length} characters."
+                )
+
+        if self.elements is not None:
+            for key, value in self.elements.items():
+                if len(value) > settings.max_extraction_rules_length:
+                    raise ValueError(
+                        f"Element rule '{key}' is too long. "
+                        f"Maximum allowed length is {settings.max_extraction_rules_length} characters."
+                    )
+
+        if self.scrolls is not None:
+            if settings.parsera_scrolls_limit <= 0 and self.scrolls > 0:
+                raise ValueError("Scrolling is disabled by PARSERA_SCROLLS_LIMIT=0.")
+
+            if settings.parsera_scrolls_limit > 0 and self.scrolls > settings.parsera_scrolls_limit:
+                raise ValueError(
+                    f"Requested scrolls value {self.scrolls} exceeds "
+                    f"PARSERA_SCROLLS_LIMIT={settings.parsera_scrolls_limit}."
+                )
+
+        return self
 
 
 class ScrapeResponse(BaseModel):
@@ -111,6 +147,10 @@ class HealthResponse(BaseModel):
     playwright_browsers_path: str | None
     llm_provider: str
     llm_configured: bool
+    max_url_length: int
+    max_extraction_rules_length: int
+    validate_json_output: bool
+    parsera_scrolls_limit: int
 
 
 app = FastAPI(
@@ -222,6 +262,18 @@ def build_wait_script(request: ScrapeRequest):
     return wait_script
 
 
+def validate_result_is_json_compatible(result: Any) -> Any:
+    if not settings.validate_json_output:
+        return result
+
+    try:
+        json.dumps(result)
+    except TypeError as exc:
+        raise ValueError(f"Parsera result is not JSON compatible: {exc}") from exc
+
+    return result
+
+
 async def run_parsera(request: ScrapeRequest) -> Any:
     from parsera import Parsera
 
@@ -255,7 +307,9 @@ async def run_parsera(request: ScrapeRequest) -> Any:
 
     logger.info("Calling Parsera with kwargs: %s", list(filtered_kwargs.keys()))
 
-    return await parser.arun(**filtered_kwargs)
+    result = await parser.arun(**filtered_kwargs)
+
+    return validate_result_is_json_compatible(result)
 
 
 @app.on_event("startup")
@@ -264,6 +318,10 @@ async def startup_event() -> None:
     logger.info("LLM provider: %s", settings.llm_provider)
     logger.info("Playwright browser: chromium")
     logger.info("Playwright browser path: %s", os.getenv("PLAYWRIGHT_BROWSERS_PATH"))
+    logger.info("MAX_URL_LENGTH: %s", settings.max_url_length)
+    logger.info("MAX_EXTRACTION_RULES_LENGTH: %s", settings.max_extraction_rules_length)
+    logger.info("VALIDATE_JSON_OUTPUT: %s", settings.validate_json_output)
+    logger.info("PARSERA_SCROLLS_LIMIT: %s", settings.parsera_scrolls_limit)
 
 
 @app.get("/health", response_model=HealthResponse)
@@ -276,6 +334,10 @@ async def health() -> HealthResponse:
         playwright_browsers_path=os.getenv("PLAYWRIGHT_BROWSERS_PATH"),
         llm_provider=settings.llm_provider,
         llm_configured=is_llm_configured(),
+        max_url_length=settings.max_url_length,
+        max_extraction_rules_length=settings.max_extraction_rules_length,
+        validate_json_output=settings.validate_json_output,
+        parsera_scrolls_limit=settings.parsera_scrolls_limit,
     )
 
 
