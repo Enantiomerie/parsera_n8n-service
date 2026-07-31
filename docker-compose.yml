@@ -2,8 +2,9 @@ services:
   parsera:
     image: enantiomerie/parsera_n8n-service:latest
     container_name: parsera
-    ports:
-      - "8000:8000"
+    # necessary if used as standalone version
+    #ports:
+    #  - "8000:8000"
 
     environment:
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
@@ -43,9 +44,11 @@ services:
       retries: 3
       start_period: 15s
 
+    # change if used as standalone verions 
     networks:
       - n8n_net
 
+# change if used as standalone verions 
 networks:
   n8n_net:
     external: true
