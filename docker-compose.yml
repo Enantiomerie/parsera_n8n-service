@@ -4,27 +4,37 @@ services:
     container_name: parsera
     restart: unless-stopped
 
+    # Enable this when the service should be reachable from the Docker host.
+    # Not required if only n8n calls the service through n8n_net.
+    # ports:
+    #   - "8000:8000"
+
     environment:
       TZ: Europe/Berlin
+      SERVICE_NAME: ${SERVICE_NAME:-parsera-n8n-service}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
 
       LLM_PROVIDER: ${LLM_PROVIDER:-gemini}
 
-      GEMINI_API_KEY: ${GEMINI_API_KEY:-change_me}
+      PARSERA_API_KEY: ${PARSERA_API_KEY:-}
+
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
       GEMINI_MODEL: ${GEMINI_MODEL:-gemini-2.5-flash}
 
-      OPENAI_API_KEY: ${OPENAI_API_KEY:-change_me}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       OPENAI_MODEL: ${OPENAI_MODEL:-gpt-4o-mini}
+      OPENAI_BASE_URL: ${OPENAI_BASE_URL:-}
 
       OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://ollama:11434}
       OLLAMA_MODEL: ${OLLAMA_MODEL:-llama2}
 
-      REQUEST_TIMEOUT: ${REQUEST_TIMEOUT:-60}
-      VALIDATE_JSON_OUTPUT: ${VALIDATE_JSON_OUTPUT:-true}
+      REQUEST_TIMEOUT_SECONDS: ${REQUEST_TIMEOUT_SECONDS:-60}
+      DEFAULT_WAIT_TIMEOUT_MS: ${DEFAULT_WAIT_TIMEOUT_MS:-15000}
 
-      PLAYWRIGHT_STEALTH: ${PLAYWRIGHT_STEALTH:-true}
-      CUSTOM_COOKIES_JSON: ${CUSTOM_COOKIES_JSON:-}
+      VALIDATE_JSON_OUTPUT: ${VALIDATE_JSON_OUTPUT:-true}
       PARSERA_SCROLLS_LIMIT: ${PARSERA_SCROLLS_LIMIT:-0}
+
+      PLAYWRIGHT_BROWSERS_PATH: /ms-playwright
 
     shm_size: 1gb
     init: true
@@ -32,9 +42,11 @@ services:
     security_opt:
       - no-new-privileges:true
 
+    # Remove this section when using the service without n8n_net.
     networks:
       - n8n_net
 
+# Remove this section when using the service without n8n_net.
 networks:
   n8n_net:
     external: true
