@@ -1,80 +1,32 @@
-"""
-Configuration and environment variables for Parsera n8n service.
-"""
-
-import json
-from typing import Optional
-
-from pydantic_settings import BaseSettings
+from pydantic import Field
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    # Service configuration
-    SERVICE_NAME: str = "parsera"
-    LOG_LEVEL: str = "INFO"
+    service_name: str = Field(default="parsera-n8n-service", alias="SERVICE_NAME")
+    log_level: str = Field(default="INFO", alias="LOG_LEVEL")
 
-    # Parsera / Playwright configuration
-    PLAYWRIGHT_STEALTH: bool = True
-    CUSTOM_COOKIES_JSON: Optional[str] = None
-    PARSERA_SCROLLS_LIMIT: int = 0
+    llm_provider: str = Field(default="parsera", alias="LLM_PROVIDER")
 
-    # LLM provider: gemini, openai, ollama
-    LLM_PROVIDER: str = "gemini"
+    parsera_api_key: str | None = Field(default=None, alias="PARSERA_API_KEY")
 
-    # Gemini configuration
-    GEMINI_API_KEY: Optional[str] = None
-    GEMINI_MODEL: str = "gemini-3.5-flash"
+    openai_api_key: str | None = Field(default=None, alias="OPENAI_API_KEY")
+    openai_model: str = Field(default="gpt-4o-mini", alias="OPENAI_MODEL")
+    openai_base_url: str | None = Field(default=None, alias="OPENAI_BASE_URL")
 
-    # OpenAI configuration
-    OPENAI_API_KEY: Optional[str] = None
-    OPENAI_MODEL: str = "gpt-4o-mini"
+    gemini_api_key: str | None = Field(default=None, alias="GEMINI_API_KEY")
+    gemini_model: str = Field(default="gemini-2.0-flash", alias="GEMINI_MODEL")
 
-    # Ollama configuration
-    OLLAMA_BASE_URL: str = "http://ollama:11434"
-    OLLAMA_MODEL: str = "llama2"
+    ollama_base_url: str = Field(default="http://ollama:11434", alias="OLLAMA_BASE_URL")
+    ollama_model: str = Field(default="llama3.1", alias="OLLAMA_MODEL")
 
-    # Request configuration
-    REQUEST_TIMEOUT: int = 60
-    MAX_URL_LENGTH: int = 2000
-    MAX_EXTRACTION_RULES_LENGTH: int = 5000
+    request_timeout_seconds: int = Field(default=180, alias="REQUEST_TIMEOUT_SECONDS")
+    default_wait_timeout_ms: int = Field(default=15000, alias="DEFAULT_WAIT_TIMEOUT_MS")
 
-    # Output validation switch kept for compatibility
-    VALIDATE_JSON_OUTPUT: bool = True
-
-    @property
-    def CUSTOM_COOKIES(self):
-        if not self.CUSTOM_COOKIES_JSON:
-            return None
-
-        try:
-            return json.loads(self.CUSTOM_COOKIES_JSON)
-        except Exception:
-            return None
-
-    class Config:
-        env_file = ".env"
-        case_sensitive = True
+    model_config = SettingsConfigDict(
+        case_sensitive=False,
+        extra="ignore",
+    )
 
 
 settings = Settings()
-
-
-def validate_llm_config() -> tuple[bool, str]:
-    provider = settings.LLM_PROVIDER.lower()
-
-    if provider == "gemini":
-        if not settings.GEMINI_API_KEY:
-            return False, "GEMINI_API_KEY is not set"
-
-    elif provider == "openai":
-        if not settings.OPENAI_API_KEY:
-            return False, "OPENAI_API_KEY is not set"
-
-    elif provider == "ollama":
-        if not settings.OLLAMA_BASE_URL:
-            return False, "OLLAMA_BASE_URL is not set"
-
-    else:
-        return False, f"Unknown LLM provider: {provider}"
-
-    return True, ""
