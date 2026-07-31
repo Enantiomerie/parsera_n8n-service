@@ -14,7 +14,6 @@ The container runs:
   - Ollama
 
 No Browserless service is required.  
-No Firefox browser is installed or used.
 
 ---
 
@@ -25,13 +24,4 @@ The container exposes two HTTP endpoints:
 | Method | Endpoint | Description |
 | --- | --- | --- |
 | `GET` | `/health` | Checks service status and configuration |
-| `POST` | `/scrape` | Scrapes a URL using Parsera and returns extracted data |
-
----
-
-## Container image
-
-The Docker Compose file uses this image:
-
-```yaml
-image: enantiomerie/parsera_n8n-service:latest
+| `POST` | `/scrape` | Scrapes a URL using Parsera and returns extracted data. See Parsera doc for JSON structure|
