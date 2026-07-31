@@ -2,53 +2,39 @@ services:
   parsera:
     image: enantiomerie/parsera_n8n-service:latest
     container_name: parsera
-    # necessary if used as standalone version
-    #ports:
-    #  - "8000:8000"
+    restart: unless-stopped
 
     environment:
+      TZ: Europe/Berlin
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
 
       LLM_PROVIDER: ${LLM_PROVIDER:-gemini}
 
-      PARSERA_API_KEY: ${PARSERA_API_KEY:-}
-
-      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-change_me}
       GEMINI_MODEL: ${GEMINI_MODEL:-gemini-2.5-flash}
 
-      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-change_me}
       OPENAI_MODEL: ${OPENAI_MODEL:-gpt-4o-mini}
-      OPENAI_BASE_URL: ${OPENAI_BASE_URL:-}
 
       OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://ollama:11434}
       OLLAMA_MODEL: ${OLLAMA_MODEL:-llama2}
 
-      REQUEST_TIMEOUT_SECONDS: ${REQUEST_TIMEOUT_SECONDS:-60}
-      DEFAULT_WAIT_TIMEOUT_MS: ${DEFAULT_WAIT_TIMEOUT_MS:-15000}
+      REQUEST_TIMEOUT: ${REQUEST_TIMEOUT:-60}
+      VALIDATE_JSON_OUTPUT: ${VALIDATE_JSON_OUTPUT:-true}
 
-      PLAYWRIGHT_BROWSERS_PATH: /ms-playwright
+      PLAYWRIGHT_STEALTH: ${PLAYWRIGHT_STEALTH:-true}
+      CUSTOM_COOKIES_JSON: ${CUSTOM_COOKIES_JSON:-}
+      PARSERA_SCROLLS_LIMIT: ${PARSERA_SCROLLS_LIMIT:-0}
 
-    ipc: host
-    restart: unless-stopped
+    shm_size: 1gb
+    init: true
 
-    healthcheck:
-      test:
-        [
-          "CMD",
-          "python",
-          "-c",
-          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=5)",
-        ]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 15s
+    security_opt:
+      - no-new-privileges:true
 
-    # change if used as standalone verions 
     networks:
       - n8n_net
 
-# change if used as standalone verions 
 networks:
   n8n_net:
     external: true
