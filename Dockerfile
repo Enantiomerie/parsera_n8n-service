@@ -17,7 +17,7 @@ RUN apt-get update \
 
 COPY requirements.txt .
 
-RUN python -m pip install --upgrade pip setuptools wheel \
+RUN python -m pip install --upgrade pip wheel \
     && python -m pip install -r requirements.txt
 
 RUN python -m playwright install --with-deps chromium
