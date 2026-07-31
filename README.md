@@ -1,43 +1,37 @@
 # Parsera n8n Service
 
-Self-hosted HTTP service that wraps the Python `parsera` library behind a simple HTTP API.
+Self-hosted HTTP service that wraps the Python `parsera` library and exposes it through a small FastAPI API.
 
-The service runs Parsera and Playwright Chromium inside the same container.
-
-No Browserless service is required.  
-No Firefox browser is installed or used.
-
-## Features
+The container runs:
 
 - FastAPI HTTP API
-- `GET /health`
-- `POST /scrape`
-- Parsera-based extraction
-- Internal Playwright Chromium browser
-- Custom LLM support via LangChain provider packages
-- Supported LLM providers:
+- Parsera
+- Playwright Chromium inside the same container
+- Optional LLM providers:
   - Parsera API
   - Gemini
   - OpenAI
   - Ollama
-- Docker Compose ready
-- n8n compatible
-- Can also be used without n8n
-- Runtime limits for URL length, extraction rule length and scroll count
 
-## Architecture
+No Browserless service is required.  
+No Firefox browser is installed or used.
 
-```text
-Client, n8n or another HTTP caller
-  |
-  | HTTP POST /scrape
-  v
-Parsera n8n Service
-  |
-  | internal Python call
-  v
-Parsera
-  |
-  | internal Playwright
-  v
-Chromium inside the same container
+---
+
+## Endpoints
+
+The container exposes two HTTP endpoints:
+
+| Method | Endpoint | Description |
+| --- | --- | --- |
+| `GET` | `/health` | Checks service status and configuration |
+| `POST` | `/scrape` | Scrapes a URL using Parsera and returns extracted data |
+
+---
+
+## Container image
+
+The Docker Compose file uses this image:
+
+```yaml
+image: enantiomerie/parsera_n8n-service:latest
