@@ -27,8 +27,9 @@ def patch_parsera_to_use_chromium() -> None:
     """
     try:
         import parsera.page as parsera_page
+        from playwright.async_api import async_playwright
     except Exception as exc:
-        logger.warning("Could not import parsera.page for Chromium patch: %s", exc)
+        logger.warning("Could not import Parsera or Playwright for Chromium patch: %s", exc)
         return
 
     async def new_browser_chromium(self: Any) -> None:
@@ -38,6 +39,9 @@ def patch_parsera_to_use_chromium() -> None:
             "--disable-gpu",
             "--disable-setuid-sandbox",
         ]
+
+        if getattr(self, "playwright", None) is None:
+            self.playwright = await async_playwright().start()
 
         self.browser = await self.playwright.chromium.launch(
             headless=True,
