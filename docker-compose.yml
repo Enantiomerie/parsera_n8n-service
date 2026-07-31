@@ -6,7 +6,6 @@ services:
       - "8000:8000"
 
     environment:
-      SERVICE_NAME: ${SERVICE_NAME:-parsera-n8n-service}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
 
       LLM_PROVIDER: ${LLM_PROVIDER:-gemini}
