@@ -1,11 +1,11 @@
-fastapi~=0.115
-uvicorn~=0.34
-pydantic~=2.10
-pydantic-settings~=2.7
+fastapi~=0.115.0
+uvicorn~=0.34.0
+pydantic~=2.10.0
+pydantic-settings~=2.7.0
 
-parsera~=0.2
-playwright~=1.61
+parsera~=0.2.6
+playwright~=1.61.0
 
-langchain-openai~=0.3
-langchain-google-genai~=2.1
-langchain-ollama~=0.3
+langchain-openai~=0.2.8
+langchain-google-genai~=2.1.0
+langchain-ollama~=0.2.2
