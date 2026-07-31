@@ -70,14 +70,9 @@ patch_parsera_to_use_chromium()
 class ScrapeRequest(BaseModel):
     url: HttpUrl = Field(..., description="URL to scrape")
 
-    elements: dict[str, str] | None = Field(
-        default=None,
+    elements: dict[str, str] = Field(
+        ...,
         description="Parsera element mapping, for example {'title': 'Page title'}",
-    )
-
-    extraction_rules: str | None = Field(
-        default=None,
-        description="Compatibility field. Used only when elements is not provided.",
     )
 
     wait_selector: str | None = Field(
@@ -100,27 +95,15 @@ class ScrapeRequest(BaseModel):
 
     @model_validator(mode="after")
     def validate_request_limits(self):
-        url_as_string = str(self.url)
+        if not self.elements:
+            raise ValueError("elements must not be empty.")
 
-        if len(url_as_string) > settings.max_url_length:
-            raise ValueError(
-                f"URL is too long. Maximum allowed length is {settings.max_url_length} characters."
-            )
+        for key, value in self.elements.items():
+            if not key.strip():
+                raise ValueError("elements contains an empty field name.")
 
-        if self.extraction_rules is not None:
-            if len(self.extraction_rules) > settings.max_extraction_rules_length:
-                raise ValueError(
-                    "extraction_rules is too long. "
-                    f"Maximum allowed length is {settings.max_extraction_rules_length} characters."
-                )
-
-        if self.elements is not None:
-            for key, value in self.elements.items():
-                if len(value) > settings.max_extraction_rules_length:
-                    raise ValueError(
-                        f"Element rule '{key}' is too long. "
-                        f"Maximum allowed length is {settings.max_extraction_rules_length} characters."
-                    )
+            if not value.strip():
+                raise ValueError(f"Element rule '{key}' must not be empty.")
 
         if self.scrolls is not None:
             if settings.parsera_scrolls_limit <= 0 and self.scrolls > 0:
@@ -151,8 +134,6 @@ class HealthResponse(BaseModel):
     playwright_browsers_path: str | None
     llm_provider: str
     llm_configured: bool
-    max_url_length: int
-    max_extraction_rules_length: int
     validate_json_output: bool
     parsera_scrolls_limit: int
 
@@ -240,18 +221,6 @@ def build_llm_model() -> Any | None:
     raise ValueError("Unsupported LLM_PROVIDER. Use one of: parsera, openai, gemini, ollama.")
 
 
-def build_elements(request: ScrapeRequest) -> dict[str, str]:
-    if request.elements:
-        return request.elements
-
-    if request.extraction_rules:
-        return {
-            "data": request.extraction_rules,
-        }
-
-    raise ValueError("Either 'elements' or 'extraction_rules' must be provided.")
-
-
 def build_wait_script(request: ScrapeRequest):
     if not request.wait_selector:
         return None
@@ -290,7 +259,7 @@ async def run_parsera(request: ScrapeRequest) -> Any:
 
     supported_kwargs: dict[str, Any] = {
         "url": str(request.url),
-        "elements": build_elements(request),
+        "elements": request.elements,
     }
 
     playwright_script = build_wait_script(request)
@@ -322,8 +291,6 @@ async def startup_event() -> None:
     logger.info("LLM provider: %s", settings.llm_provider)
     logger.info("Playwright browser: chromium")
     logger.info("Playwright browser path: %s", os.getenv("PLAYWRIGHT_BROWSERS_PATH"))
-    logger.info("MAX_URL_LENGTH: %s", settings.max_url_length)
-    logger.info("MAX_EXTRACTION_RULES_LENGTH: %s", settings.max_extraction_rules_length)
     logger.info("VALIDATE_JSON_OUTPUT: %s", settings.validate_json_output)
     logger.info("PARSERA_SCROLLS_LIMIT: %s", settings.parsera_scrolls_limit)
 
@@ -338,8 +305,6 @@ async def health() -> HealthResponse:
         playwright_browsers_path=os.getenv("PLAYWRIGHT_BROWSERS_PATH"),
         llm_provider=settings.llm_provider,
         llm_configured=is_llm_configured(),
-        max_url_length=settings.max_url_length,
-        max_extraction_rules_length=settings.max_extraction_rules_length,
         validate_json_output=settings.validate_json_output,
         parsera_scrolls_limit=settings.parsera_scrolls_limit,
     )
